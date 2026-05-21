@@ -1,0 +1,189 @@
+{%- liquid
+  assign inventory_max = block_settings.inventory_max
+  assign low_inventory_threshold = block_settings.low_inventory_threshold
+  assign label = block_settings.label
+  assign label_classes = 'fs-body-100'
+
+  assign deal_in_stock = 'products.inventory.deal_in_stock' | t
+  assign deal_sold_out = 'products.inventory.deal_sold_out' | t
+  assign label = ''
+  unless show_label
+    assign label_classes = label_classes | append: ' visually-hidden'
+  endunless
+
+  assign low_inventory_threshold_to_num = low_inventory_threshold | plus: 0
+  
+  assign soldout_message_enabled = block_settings.soldout_message_enabled
+  assign soldout_message_caption = block_settings.soldout_message_caption
+  assign soldout_message_text = block_settings.soldout_message_text
+  assign soldout_message_color = block_settings.soldout_message_color
+
+  assign product_variant = product.selected_or_first_available_variant
+  assign product_available = product_variant.available
+
+
+  assign initial_quantity = product.metafields.custom.initialquantity.value | default: 0
+  assign current_quantity = product.selected_or_first_available_variant.inventory_quantity | default: 0
+
+  if initial_quantity > 0
+    assign percent_left = current_quantity | times: 100.0 | divided_by: initial_quantity
+    assign percent_left = 100 | minus: percent_left
+  else
+    assign percent_left = 0
+  endif
+
+  # Cap the bar at maximum 90% so it never looks completely empty when stock is low
+  if current_quantity > 0 and current_quantity <= 20
+    assign percent_left_display = 90
+  else
+    assign percent_left_display = percent_left
+  endif
+
+-%}
+
+{% if product_available == false and soldout_message_enabled == true %}
+  <div
+    class="soldout_message_container"
+  >
+    <div
+      class="soldout_message_caption"
+    >
+      <h2>{{ soldout_message_caption }}</h2>
+    </div>
+    <div
+      class="soldout_message_text"
+      style="color: {{ soldout_message_color }}"
+    >
+      <span>{{ soldout_message_text }}</span>
+    </div>
+  </div>
+{% else %}
+  <div
+    class="inventory-counter product__block product__block--medium"
+    data-inventory-counter
+    data-low-inventory-threshold="{{ low_inventory_threshold }}"
+    data-stock-countdown-max="{{ inventory_max }}"
+    data-show-status-bar="{{ block_settings.show_status_bar }}"
+    data-show-untracked-quantity="{{ block_settings.show_untracked_quantity }}"
+    data-unavailable-text="{{ 'products.inventory.unavailable' | t }}"
+    {{ block.shopify_attributes }}
+  >
+    <div class="product__label-wrapper">
+      <span class="product__label inventory-counter__label fs-body-100">{{ label }}</span>
+    </div>
+    
+ {% if current_quantity > 0 and current_quantity <= 20 %}
+  <span class="inventory-counter__low-stock-message fs-body-75" style="color: black; font-weight: bold;">
+    Only a few left!
+  </span>
+
+
+
+{% endif %}
+{% comment %}
+added at_most 90 so the progress bar never goes below 90%
+{% endcomment %}
+    <span class="inventory-counter__bar" initial="{{ initial_quantity }}" current="{{ current_quantity }}">
+      <span class="inventory-counter__bar-progress" style="width: {{ percent_left_display | round: 1 | at_most: 90 }}%;"></span>
+    </span>
+    {% comment %} 
+    {% if percent_left_display > 90 %}
+  <span class="inventory-counter__message" style="color: black; font-weight: bold;"><br>Only a few left</span>
+{% endif %}
+{% endcomment %}
+    <div class="stock-container">
+      <span class="inventory-counter__label fs-body-75 t-opacity-80 color-disabled">{{ deal_sold_out }}</span>
+      <span class="inventory-counter__label fs-body-75 t-opacity-80 color-disabled">{{ deal_in_stock }}</span>
+    </div>
+  </div>  
+{% endif %}
+
+  <style>
+    .inventory-counter__bar {
+      background: #3a3a3a;
+      height: 4px;
+      position: relative;
+      overflow: visible;
+    }
+
+    .inventory-counter__bar-progress {
+      position: absolute;
+      right: 0;
+      top: 0;
+      height: 100%;
+      background: #e45757 !important;
+    }
+
+    .inventory-counter__bar-progress::after {
+      content: "";
+      position: absolute;
+      left: 0;
+      top: 50%;
+      transform: translate(-50%, -50%);
+      width: 10px;
+      height: 10px;
+      background: #e45757;
+      border-radius: 50%;
+      z-index: 2;
+    }
+
+    .inventory-counter__bar-progress {
+      transition: width 0.4s ease;
+    }
+
+    .inventory-counter__bar-progress::after {
+      opacity: 1;
+      transition: opacity 0.2s;
+    }
+
+    .inventory-counter__bar-progress[style*="width: 0"]::after,
+    .inventory-counter__bar-progress[style*="width: 100"]::after {
+      opacity: 0;
+    }
+
+    .soldout_message_text {
+      padding: var(--spacing-2) 0;
+    }
+
+    .stock-container {
+      padding-top: var(--spacing-4);
+    }
+  </style>
+
+  <script type="application/json" data-product-inventory-json>
+    {
+      "inventory": {
+        {%- for variant in product.variants -%}
+          {%- if variant.available and product.metafields.custom.force_out_of_stock != true -%}
+            {%- if variant.inventory_management == nil and block_settings.show_untracked_quantity -%}
+              {%- capture inventory_message -%}{{ 'products.inventory.in_stock' | t }}{%- endcapture -%}
+            {%- else -%}
+              {%- if variant.inventory_management and variant.inventory_quantity > 0 and low_inventory_threshold_to_num > 0 -%}
+                {%- if variant.inventory_quantity <= low_inventory_threshold_to_num -%}
+                  {%- capture inventory_message -%}{{ 'products.inventory.low_stock' | t : count: variant.inventory_quantity }}{%- endcapture -%}
+                {%- else -%}
+                  {%- capture inventory_message -%}{{ 'products.inventory.in_stock' | t }}{%- endcapture -%}
+                {%- endif -%}
+              {%- else -%}
+                {%- if variant.inventory_policy == 'deny' and variant.inventory_quantity <= 0 and variant.requires_shipping -%}
+                  {%- capture inventory_message -%}{{ 'products.inventory.sold_out' | t }}{%- endcapture -%}
+                {%- elsif variant.inventory_policy == 'continue' and variant.inventory_quantity <= 0 and variant.requires_shipping -%}
+                  {%- capture inventory_message -%}{{ 'products.inventory.backordered' | t }}{%- endcapture -%}
+                {%- else %}
+                  {%- capture inventory_message -%}{%- endcapture -%}
+                {%- endif -%}
+              {%- endif -%}
+            {%- endif -%}
+          {%- else -%}
+            {%- capture inventory_message -%}{{ 'products.inventory.sold_out' | t }}{%- endcapture -%}
+          {%- endif -%}
+          "{{ variant.id }}": {
+            "inventory_management": {{ variant.inventory_management | json }},
+            "inventory_policy": {{ variant.inventory_policy | json }},
+            "inventory_quantity": {{ variant.inventory_quantity | json }},
+            "inventory_message": "",
+          }{% unless forloop.last %},{% endunless %}
+        {%- endfor -%}
+      }
+    }
+  </script>
